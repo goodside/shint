@@ -73,14 +73,14 @@ This style of translation has a number of issues:
   changes must be made in multiple places to add or remove commands from the pipeline. Subprocess
   and file-descriptor boilerplate that would be common to any pipeline task is mixed with the actual
   content of commands. This is exacerbated when commands are parameterized or, worse, exchange data
-  with the Python process at runtime.)
-- It's **hard to debug**. If a mistake is made (`proc_head` is used where `proc_grep` should be) it
+  with the Python process at runtime.
+- It's **hard to debug**. If you make a mistake (you use `proc_head` where you mean `proc_grep`) it
   generally will not raise an error until the pipeline has already started executing, if at all.
-- It's **it's never quite shell**. There are many subtle differences between `/bin/sh` and
+- It's **never quite shell**. There are many subtle differences between `/bin/sh` and
   `subprocess.Popen` regarding pipe buffering, stream signalling, terminal detection, handling of
   stderr, handling of failed processes, named pipes, and killing child processes during interrupts.
   Translating common bash techniques like process substitution (`diff <(ls foo) <(ls bar)`) is far
-  from trivial. Dealing with these issues can quickly outweigh the benefit of using Python over
+  from trivial. Dealing with these issues can outweigh the benefit of using Python over
   shell at all.
 
 ### Option B: Quoting paranoia
