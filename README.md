@@ -32,7 +32,7 @@ if shell == True:
 
 The module docs encourage the default `shell=False` whenever possible, and warn that properly
 escaping quotes is your responsibility should you choose to set `shell=True`. Of course, the
-`shell=True` version is what you new users are hoping to find.
+`shell=True` version is what you were hoping to find.
 
 You now have a choice:
 
