@@ -10,9 +10,8 @@ embed hard-to-translate shell idioms in Python, exploiting the shell's best feat
 
 ## Motivation
 
-The key issue addressed here is that subprocess.Popen and its related methods / wrappers follow a
-convention where the initial argument `args` is interpreted in a confusing and bug-prone way,
-described here in pseudo-code:
+Python 3's `subprocess.Popen` and its related methods / wrappers follow a convention where the
+initial argument `args` is interpreted in a peculiar way, described here in pseudo-code:
 
 ```python
 if shell == False:
@@ -31,16 +30,25 @@ if shell == True:
         # Send the first element (unquoted) to /bin/sh
 ```
 
-The module docs encourage you to use the default `shell=False` whenever possible, and warn that
-properly escaping quotes is your responsibility if you choose to set `shell=True`. In practice, you
-must either:
+The module docs encourage the default `shell=False` whenever possible, and warn that properly
+escaping quotes is your responsibility should you choose to set `shell=True`. Of course, the
+`shell=True` version is what you new users are hoping to find.
 
-- **A** — replace every needed shell feature with equivalent Python idioms, or
-- **B** — carefully manage when strings are and are not expected to be quoted.
+You now have a choice:
 
-Option A is much more difficult than it appears. When forming large process pipelines, file
-descriptors must be linked manually, requiring you to uniquely label every command no matter how
-brief. A trivial one-liner like `head -n 100 $filepath | grep foo | wc -l` turns into:
+- **A**: Tolerate a few extra commas and quote marks (`["head", "-n", str(100)]`) and represent
+  every subprocess you'd need normal call in shell with a `subprocess.Popen` instance — the
+  "Pythonic" way
+- **B**: Have every shell convenience you like, but be responsible for remembering to use
+  `shlex.quote()` — failures penalized with silent errors, landmine bugs, and security
+  vulnerabilities
+
+### Option A: The "Pythonic" way
+
+If your main need for shell is building subprocess pipelines, the recommended path is harder than it
+appears. When piping data with `Popen`, file descriptors must be linked manually, requiring you to
+choose a label every command no matter how brief. A one-liner like `head -n 100 "$filepath" | grep
+foo | wc -l` turns into:
 
 ```python
 cmd_head = ["head", "-n", str(100), shlex.quote(str(filepath))]
@@ -59,19 +67,51 @@ proc_grep.stdout.close()
 proc_wc.communicate()
 ```
 
-This code is difficult to maintain. Each of the strings ("head", "grep", "wc") appears six times,
-and changes must be made in multiple places to add or remove commands from the pipeline. Subprocess
-and file-descriptor boilerplate that would be common to any pipeline task is mixed with the actual
-content of commands. (This is exacerbated when commands are parameterized or, worse, must exchange
-data with the Python process at runtime.) If a mistake is made (`proc_head` is used where
-`proc_grep` should be) it generally will not raise an error until the pipeline has already started
-executing, if at all.
+This style of translation has a number of issues:
 
-There are also many subtle differences between `/bin/sh` and `subprocess.Popen` regarding pipe
-buffering, stream signalling, terminal detection, handling of stderr, handling of failed processes,
-named and killing child processes during interrupts. Dealing with these issues can quickly outweigh
-the benefits of using Python over shell at all.
+- It's **hard to maintain**. Each of the strings "head", "grep", and "wc" appear six times, and
+  changes must be made in multiple places to add or remove commands from the pipeline. Subprocess
+  and file-descriptor boilerplate that would be common to any pipeline task is mixed with the actual
+  content of commands. This is exacerbated when commands are parameterized or, worse, exchange data
+  with the Python process at runtime.)
+- It's **hard to debug**. If a mistake is made (`proc_head` is used where `proc_grep` should be) it
+  generally will not raise an error until the pipeline has already started executing, if at all.
+- It's **it's never quite shell**. There are many subtle differences between `/bin/sh` and
+  `subprocess.Popen` regarding pipe buffering, stream signalling, terminal detection, handling of
+  stderr, handling of failed processes, named pipes, and killing child processes during interrupts.
+  Translating common bash techniques like process substitution (`diff <(ls foo) <(ls bar)`) is far
+  from trivial. Dealing with these issues can quickly outweigh the benefit of using Python over
+  shell at all.
 
-Option B, unfortunately, is not much better.
+### Option B: Quoting paranoia
 
-[Unfinished — work in progress]
+The alternative is not much better. Shell commands almost always need to include string arguments
+from the Python parent, and those arguments must be passed through `shlex.quote()`. If a string is
+missed, commands will often continue to work without error — for now. Then, once the code is in
+production, a file path contains a space and the script fails.
+
+The problem is that strings are everywhere, and it's not realistic to treat all of them as toxic.
+You need something like the `Popen(shell=False)` interface that `subprocess` recommends, where quoting
+happens by default, but still be able to use the shell features you need.
+
+### Solution: Better quotes through typing
+
+Part of the reason the default `Popen(shell=False)` works so well in simple cases (e.g., safely
+invoking a single command with arguments) is because it represents a shell command as a crude
+[abstract syntax tree][AST] — namely, a tree of depth 2 that only models commands and their
+space-separated arguments.
+
+[AST]: https://en.wikipedia.org/wiki/Abstract_syntax_tree
+
+**shint** takes this idea a step further, letting you build larger, more complex shell commands
+in Python to serve as safe inputs for `Popen(shell=True)`:
+
+- Strings are always assumed to be unquoted, and will never be interpreted as shell syntax
+- As with `shell=False`, lists of strings are rendered as a space-separated sequence — a shell
+  command with arguments
+- When you need shell syntax, you instantiate a wrapper class that preserves its arguments unquoted
+- Combining these shell-syntax wrappers, you build your shell script as an AST in Python
+- Unlike a string-templated shell script with embedded `shlex.quote()`, the AST can be introspected
+  and modified after its parameters have been set — meaning higher-level structures can be
+  managed in Python
+    
